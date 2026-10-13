@@ -2,7 +2,7 @@
 
 ManiSkill clients for pi0 / pi0.5 policies served by OpenPI (`scripts/serve_policy.py`, websocket). The client sends `observation/image` and `observation/wrist_image` (resized with padding to 224x224), `observation/state` (8-D joint state) and `prompt`, and executes the first `replan` actions of the returned chunk.
 
-The OpenPI server side (the `pi0_maniskill` / `pi05_maniskill` configs and fine-tuning) is described in [`../../finetune`](../../finetune).
+The OpenPI server side (the `pi0_maniskill` / `pi05_maniskill` configs and fine-tuning) is described in [`../../finetune/pi05`](../../finetune/pi05).
 
 | File | Purpose |
 |---|---|

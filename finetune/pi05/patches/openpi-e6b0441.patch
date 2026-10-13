@@ -1,0 +1,340 @@
+diff --git a/scripts/compute_norm_stats.py b/scripts/compute_norm_stats.py
+index c8aef87..772d28e 100644
+--- a/scripts/compute_norm_stats.py
++++ b/scripts/compute_norm_stats.py
+@@ -5,9 +5,11 @@ will compute the mean and standard deviation of the data in the dataset and save
+ to the config assets directory.
+ """
+ 
++import argparse
++import dataclasses
++
+ import numpy as np
+ import tqdm
+-import tyro
+ 
+ import openpi.models.model as _model
+ import openpi.shared.normalize as normalize
+@@ -86,8 +88,12 @@ def create_rlds_dataloader(
+     return data_loader, num_batches
+ 
+ 
+-def main(config_name: str, max_frames: int | None = None):
++def main(config_name: str, max_frames: int | None = None, repo_id: str | None = None):
+     config = _config.get_config(config_name)
++    if repo_id is not None:
++        # Keep the concrete data factory type (and its transforms); only replace the dataset.
++        config = dataclasses.replace(config, data=dataclasses.replace(config.data, repo_id=repo_id))
++
+     data_config = config.data.create(config.assets_dirs, config.model)
+ 
+     if data_config.rlds_data_dir is not None:
+@@ -108,10 +114,32 @@ def main(config_name: str, max_frames: int | None = None):
+ 
+     norm_stats = {key: stats.get_statistics() for key, stats in stats.items()}
+ 
+-    output_path = config.assets_dirs / data_config.repo_id
++    # Training loads norm stats from `assets_dir / asset_id`; for a local dataset path the asset_id is a hash of it.
++    output_path = config.assets_dirs / (data_config.asset_id or data_config.repo_id)
+     print(f"Writing stats to: {output_path}")
+     normalize.save(output_path, norm_stats)
+ 
+ 
+ if __name__ == "__main__":
+-    tyro.cli(main)
++    parser = argparse.ArgumentParser(description="Compute normalization stats for a given config.")
++    parser.add_argument(
++        "config_name",
++        nargs="?",
++        default=None,
++        help="Config name to compute norm stats for (e.g. pi05_maniskill).",
++    )
++    parser.add_argument("--config-name", dest="config_name_opt", default=None, help="Alias for config name.")
++    parser.add_argument("--max-frames", type=int, default=None, help="Optional cap on number of frames.")
++    parser.add_argument("--data.repo_id", "--data.repo-id", dest="data_repo_id", default=None,
++                        help="LeRobot repo id or local dataset path; overrides the config's repo_id.")
++
++    args = parser.parse_args()
++    resolved_config_name = args.config_name_opt or args.config_name
++    if not resolved_config_name:
++        parser.error("Missing config name. Provide positional <config_name> or --config-name <config_name>.")
++
++    main(
++        resolved_config_name,
++        max_frames=args.max_frames,
++        repo_id=args.data_repo_id,
++    )
+diff --git a/scripts/train_pytorch.py b/scripts/train_pytorch.py
+index c7ddd2b..1b897d7 100644
+--- a/scripts/train_pytorch.py
++++ b/scripts/train_pytorch.py
+@@ -443,9 +443,24 @@ def train_loop(config: _config.TrainConfig):
+         logging.info(f"Loading weights from: {config.pytorch_weight_path}")
+ 
+         model_path = os.path.join(config.pytorch_weight_path, "model.safetensors")
+-        safetensors.torch.load_model(
+-            (model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model), model_path
+-        )
++        # Load state dict and strip 'model.' prefix if present (some checkpoints save with this prefix)
++        state_dict = {}
++        with safetensors.safe_open(model_path, framework="pt", device="cpu") as f:
++            for key in f.keys():
++                state_dict[key] = f.get_tensor(key)
++        if state_dict and any(k.startswith("model.") for k in state_dict.keys()):
++            logging.info("Stripping 'model.' prefix from checkpoint keys (partial or full)")
++            state_dict = {(k[len("model."):] if k.startswith("model.") else k): v for k, v in state_dict.items()}
++        # Handle tied weights: PaliGemma lm_head and embed_tokens share weights.
++        # Some checkpoints omit embed_tokens.weight (saving only lm_head.weight).
++        # Synthesize the missing tied embedding weight here.
++        LM_HEAD_KEY = "paligemma_with_expert.paligemma.lm_head.weight"
++        EMBED_KEY = "paligemma_with_expert.paligemma.model.language_model.embed_tokens.weight"
++        if LM_HEAD_KEY in state_dict and EMBED_KEY not in state_dict:
++            logging.info(f"Adding tied weight {EMBED_KEY} from {LM_HEAD_KEY}")
++            state_dict[EMBED_KEY] = state_dict[LM_HEAD_KEY]
++        target_model = model.module if isinstance(model, torch.nn.parallel.DistributedDataParallel) else model
++        target_model.load_state_dict(state_dict)
+         logging.info(f"Loaded PyTorch weights from {config.pytorch_weight_path}")
+ 
+     # Optimizer + learning rate schedule from config
+diff --git a/src/openpi/policies/policy_config.py b/src/openpi/policies/policy_config.py
+index 6570df0..45fa109 100644
+--- a/src/openpi/policies/policy_config.py
++++ b/src/openpi/policies/policy_config.py
+@@ -59,9 +59,14 @@ def create_trained_policy(
+     if norm_stats is None:
+         # We are loading the norm stats from the checkpoint instead of the config assets dir to make sure
+         # that the policy is using the same normalization stats as the original training process.
+-        if data_config.asset_id is None:
+-            raise ValueError("Asset id is required to load norm stats.")
+-        norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", data_config.asset_id)
++        asset_id = data_config.asset_id
++        if asset_id is None:
++            # Configs without a fixed dataset (e.g. the ManiSkill ones): use the only asset dir in the checkpoint.
++            asset_dirs = [d.name for d in (pathlib.Path(checkpoint_dir) / "assets").iterdir() if d.is_dir()]
++            if len(asset_dirs) != 1:
++                raise ValueError("Asset id is required to load norm stats.")
++            asset_id = asset_dirs[0]
++        norm_stats = _checkpoints.load_norm_stats(checkpoint_dir / "assets", asset_id)
+ 
+     # Determine the device to use for PyTorch models
+     if is_pytorch and pytorch_device is None:
+diff --git a/src/openpi/training/config.py b/src/openpi/training/config.py
+index 4ca47e1..3b3b685 100644
+--- a/src/openpi/training/config.py
++++ b/src/openpi/training/config.py
+@@ -4,6 +4,7 @@ import abc
+ from collections.abc import Sequence
+ import dataclasses
+ import difflib
++import hashlib
+ import logging
+ import pathlib
+ from typing import Any, Literal, Protocol, TypeAlias
+@@ -20,6 +21,7 @@ import openpi.models.tokenizer as _tokenizer
+ import openpi.policies.aloha_policy as aloha_policy
+ import openpi.policies.droid_policy as droid_policy
+ import openpi.policies.libero_policy as libero_policy
++import openpi.policies.maniskill_policy as maniskill_policy
+ import openpi.shared.download as _download
+ import openpi.shared.normalize as _normalize
+ import openpi.training.droid_rlds_dataset as droid_rlds_dataset
+@@ -34,6 +36,21 @@ ModelType: TypeAlias = _model.ModelType
+ Filter: TypeAlias = nnx.filterlib.Filter
+ 
+ 
++def _is_local_repo_id(repo_id: str | None) -> bool:
++    """True if repo_id looks like a local path (HF ids are 'name' or 'org/name')."""
++    if not repo_id or repo_id == "fake":
++        return False
++    if repo_id.startswith("/"):
++        return True
++    return repo_id.count("/") >= 2
++
++
++def local_path_asset_id(repo_id: str) -> str:
++    """Stable, unique asset_id for a local dataset path. Same path => same id; different paths => no overwrite."""
++    normalized = pathlib.Path(repo_id).resolve().as_posix()
++    return hashlib.sha256(normalized.encode()).hexdigest()[:16]
++
++
+ @dataclasses.dataclass(frozen=True)
+ class AssetsConfig:
+     """Determines the location of assets (e.g., norm stats) that will be used to set up the data pipeline.
+@@ -178,7 +195,10 @@ class DataConfigFactory(abc.ABC):
+ 
+     def create_base_config(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
+         repo_id = self.repo_id if self.repo_id is not tyro.MISSING else None
+-        asset_id = self.assets.asset_id or repo_id
++        # Per-dataset asset_id for local paths so different datasets don't overwrite each other's norm_stats.
++        asset_id = self.assets.asset_id or (
++            local_path_asset_id(repo_id) if _is_local_repo_id(repo_id) else repo_id
++        )
+         return dataclasses.replace(
+             self.base_config or DataConfig(),
+             repo_id=repo_id,
+@@ -355,6 +375,56 @@ class LeRobotLiberoDataConfig(DataConfigFactory):
+         )
+ 
+ 
++@dataclasses.dataclass(frozen=True)
++class LeRobotManiskillDataConfig(DataConfigFactory):
++    """ManiSkill Panda demos in LeRobot format.
++
++    Dataset keys: ``image`` and ``wrist_image`` (RGB), ``state`` (8,) and ``actions`` (8,), plus the per-episode
++    ``task`` string used as the prompt. The first 7 action dims are absolute joint targets and the last one is the
++    gripper command. With ``use_joint_delta_transform=True`` the 7 joint dims are trained as deltas relative to the
++    current state and converted back to absolute targets at inference.
++    """
++
++    use_joint_delta_transform: bool = True
++
++    @override
++    def create(self, assets_dirs: pathlib.Path, model_config: _model.BaseModelConfig) -> DataConfig:
++        repack_transform = _transforms.Group(
++            inputs=[
++                _transforms.RepackTransform(
++                    {
++                        "observation/image": "image",
++                        "observation/wrist_image": "wrist_image",
++                        "observation/state": "state",
++                        "actions": "actions",
++                        "prompt": "prompt",
++                    }
++                )
++            ]
++        )
++
++        data_transforms = _transforms.Group(
++            inputs=[maniskill_policy.ManiskillInputs(model_type=model_config.model_type)],
++            outputs=[maniskill_policy.ManiskillOutputs()],
++        )
++
++        if self.use_joint_delta_transform:
++            delta_action_mask = _transforms.make_bool_mask(7, -1)
++            data_transforms = data_transforms.push(
++                inputs=[_transforms.DeltaActions(delta_action_mask)],
++                outputs=[_transforms.AbsoluteActions(delta_action_mask)],
++            )
++
++        model_transforms = ModelTransformFactory()(model_config)
++
++        return dataclasses.replace(
++            self.create_base_config(assets_dirs, model_config),
++            repack_transforms=repack_transform,
++            data_transforms=data_transforms,
++            model_transforms=model_transforms,
++        )
++
++
+ @dataclasses.dataclass(frozen=True)
+ class RLDSDroidDataConfig(DataConfigFactory):
+     """
+@@ -761,6 +831,50 @@ _CONFIGS = [
+         pytorch_weight_path="/path/to/your/pytorch_weight_path",
+         num_train_steps=30_000,
+     ),
++    # ManiSkill Panda fine-tuning, pi0.5. Pass the dataset with --data.repo_id.
++    TrainConfig(
++        name="pi05_maniskill",
++        model=pi0_config.Pi0Config(pi05=True, action_horizon=10, discrete_state_input=False),
++        data=LeRobotManiskillDataConfig(
++            base_config=DataConfig(prompt_from_task=True),
++            use_joint_delta_transform=True,
++        ),
++        batch_size=256,
++        lr_schedule=_optimizer.CosineDecaySchedule(
++            warmup_steps=10_000,
++            peak_lr=5e-5,
++            decay_steps=1_000_000,
++            decay_lr=5e-5,
++        ),
++        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
++        ema_decay=0.999,
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
++        pytorch_weight_path="ckpt/pi05-libero",
++        num_train_steps=18_000,
++        save_interval=6_000,
++    ),
++    # ManiSkill Panda fine-tuning, pi0. Pass the dataset with --data.repo_id.
++    TrainConfig(
++        name="pi0_maniskill",
++        model=pi0_config.Pi0Config(action_horizon=10, discrete_state_input=False),
++        data=LeRobotManiskillDataConfig(
++            base_config=DataConfig(prompt_from_task=True),
++            use_joint_delta_transform=True,
++        ),
++        batch_size=256,
++        lr_schedule=_optimizer.CosineDecaySchedule(
++            warmup_steps=10_000,
++            peak_lr=5e-5,
++            decay_steps=1_000_000,
++            decay_lr=5e-5,
++        ),
++        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
++        ema_decay=0.999,
++        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi0_base/params"),
++        pytorch_weight_path="ckpt/pi0_base_pytorch",
++        num_train_steps=18_000,
++        save_interval=6_000,
++    ),
+     #
+     # Fine-tuning Aloha configs.
+     #
+diff --git a/src/openpi/training/data_loader.py b/src/openpi/training/data_loader.py
+index e2ee7dd..66c2b98 100644
+--- a/src/openpi/training/data_loader.py
++++ b/src/openpi/training/data_loader.py
+@@ -127,6 +127,20 @@ class FakeDataset(Dataset):
+         return self._num_samples
+ 
+ 
++def _is_local_dataset_path(repo_id: str) -> bool:
++    """True if repo_id is a local filesystem path (absolute or existing directory).
++    HF repo ids are only 'name' or 'org/name'; paths have leading / or multiple segments.
++    """
++    if not repo_id or repo_id == "fake":
++        return False
++    if os.path.isabs(repo_id):
++        return True
++    # "org/repo" has one slash; path-like "a/b/c" or "data/lerobot_dataset" has more or exists as dir
++    if repo_id.count("/") >= 2:
++        return True
++    return os.path.exists(repo_id) and os.path.isdir(repo_id)
++
++
+ def create_torch_dataset(
+     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
+ ) -> Dataset:
+@@ -137,13 +151,25 @@ def create_torch_dataset(
+     if repo_id == "fake":
+         return FakeDataset(model_config, num_samples=1024)
+ 
+-    dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
+-    dataset = lerobot_dataset.LeRobotDataset(
+-        data_config.repo_id,
+-        delta_timestamps={
+-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
+-        },
+-    )
++    # LeRobot expects repo_id in form "name" or "org/name"; for local paths pass root= and a placeholder repo_id.
++    if _is_local_dataset_path(repo_id):
++        lerobot_repo_id = "local/dataset"
++        dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(lerobot_repo_id, root=repo_id)
++        dataset = lerobot_dataset.LeRobotDataset(
++            lerobot_repo_id,
++            root=repo_id,
++            delta_timestamps={
++                key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
++            },
++        )
++    else:
++        dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
++        dataset = lerobot_dataset.LeRobotDataset(
++            data_config.repo_id,
++            delta_timestamps={
++                key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
++            },
++        )
+ 
+     if data_config.prompt_from_task:
+         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
