@@ -1,0 +1,42 @@
+diff --git a/gr00t/model/gr00t_n1d7/setup.py b/gr00t/model/gr00t_n1d7/setup.py
+index c202fb8..091cc6b 100644
+--- a/gr00t/model/gr00t_n1d7/setup.py
++++ b/gr00t/model/gr00t_n1d7/setup.py
+@@ -151,7 +151,16 @@ class Gr00tN1d7Pipeline(ModelPipeline):
+     def _create_dataset(self, save_cfg_dir: Path):
+         """Create appropriate dataset based on task and mode."""
+         if self.config.training.start_from_checkpoint is not None:
+-            processor = AutoProcessor.from_pretrained(
++            # Use Gr00tN1d7Processor.from_pretrained directly when checkpoint is a local dir
++            # to avoid AutoProcessor triggering network calls for gated backbone repos.
++            import os as _os
++            _ckpt = self.config.training.start_from_checkpoint
++            _load_fn = (
++                Gr00tN1d7Processor.from_pretrained
++                if _os.path.isdir(_ckpt)
++                else AutoProcessor.from_pretrained
++            )
++            processor = _load_fn(
+                 self.config.training.start_from_checkpoint,
+                 # Overrides
+                 modality_configs=self.config.data.modality_configs,
+diff --git a/gr00t/utils/video_utils.py b/gr00t/utils/video_utils.py
+index 5ab04ae..208d10e 100644
+--- a/gr00t/utils/video_utils.py
++++ b/gr00t/utils/video_utils.py
+@@ -386,6 +386,15 @@ def get_frames_by_indices(
+         cap.release()
+         frames = np.array(frames)
+         return frames
++    elif video_backend == "pyav":
++        with av.open(video_path) as container:
++            stream = container.streams.video[0]
++            all_frames = []
++            for frame in container.decode(video=0):
++                all_frames.append(frame.to_ndarray(format="rgb24"))
++        index_set = sorted(set(indices))
++        frame_map = {i: all_frames[i] for i in index_set if i < len(all_frames)}
++        return np.array([frame_map[i] for i in indices])
+     else:
+         raise NotImplementedError
+ 

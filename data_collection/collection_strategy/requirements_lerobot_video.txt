@@ -1,0 +1,7 @@
+# Optional: video-based LeRobot conversion (convert_maniskill_to_lerobot_video.py, SKIP_CONVERT_VIDEO=0).
+# pip install -r collection_strategy/requirements_lerobot_video.txt
+lerobot>=0.4,<0.6
+h5py
+numpy
+Pillow
+tqdm

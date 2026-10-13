@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.DS_Store
+outputs/
+results/
+videos/
+*.h5
+*.mp4
+*.log
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+checkpoint-*/

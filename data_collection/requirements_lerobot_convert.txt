@@ -1,0 +1,7 @@
+# LeRobot conversion (collection_strategy/convert_maniskill_to_lerobot.py).
+# Can be a separate environment from ManiSkill; point LEROBOT_PYTHON at its interpreter.
+lerobot>=0.4
+h5py
+numpy
+Pillow
+tqdm

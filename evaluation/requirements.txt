@@ -1,0 +1,14 @@
+# ManiSkill client environment (install the fork first: pip install -e ../maniskill)
+gymnasium
+numpy
+tyro
+tqdm
+imageio
+imageio-ffmpeg
+# GR00T zmq client
+msgpack
+pyzmq
+# VLM judge
+requests
+# pi0 / pi0.5 client: install openpi-client from your OpenPI checkout
+#   pip install -e <OPENPI_REPO>/packages/openpi-client

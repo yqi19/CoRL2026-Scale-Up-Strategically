@@ -1,0 +1,10 @@
+# Default object sizes for Verb*Color*Shape tabletop envs (cube, sphere, ring).
+# Load with load_object_sizes() from pick_cube_cfgs. Override via env kwargs object_sizes_path or object_sizes.
+# Cube: half_size (half side length). Sphere: radius. Ring: radius, inner_radius, half_height.
+# Sizes chosen so cube, sphere, ring are similar; ring slightly larger.
+
+cube_half_size=0.02
+sphere_radius=0.03
+ring_radius=0.03
+ring_inner_radius=0.015
+ring_half_height=0.008
