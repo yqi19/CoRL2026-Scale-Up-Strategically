@@ -38,7 +38,7 @@ The scripts in `gr00t_overrides/` are run from this folder; `finetune.sh` puts `
 
 ```bash
 python gr00t_overrides/scripts/prepare_conflict_data.py \
-    --src_root <data_collection output>/demo_conflict \
+    --src_root <repo>/data_collection/outputs/conflict \
     --out_root <DATA_ROOT> \
     --num_demos 300 --fps 30 \
     --categories color_object   # default: all 10 factor pairs

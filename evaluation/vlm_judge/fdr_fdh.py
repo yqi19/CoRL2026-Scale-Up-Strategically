@@ -18,7 +18,7 @@ Sources of N_f1 / N_f2:
 
 FDH (Factor Dominance Hierarchy): Copeland ranking over the pairwise FDRs.
 For each pair, f1 wins if FDR > tau, f2 wins if FDR < -tau, otherwise tie.
-Copeland score = wins - losses; factors are ranked by score (tau = 0.05).
+A factor scores +1 for each pairwise win and 0 for each loss or tie (tau = 0.05).
 
 Factor names: verb, color, object, size, spatial ("shape" in the logs is the
 object factor).
@@ -87,10 +87,8 @@ def copeland(fdrs: dict[str, float], tau: float):
         score.setdefault(b, 0)
         if v > tau:
             score[a] += 1
-            score[b] -= 1
         elif v < -tau:
             score[b] += 1
-            score[a] -= 1
     return sorted(score.items(), key=lambda kv: -kv[1])
 
 
@@ -123,7 +121,7 @@ def main() -> None:
 
     print(f"\nFDH (Copeland, tau={a.tau:.2f}; {len(fdrs)} pairs):")
     for rank, (factor, s) in enumerate(copeland(fdrs, a.tau), 1):
-        print(f"  {rank}. {factor:<8} score={s:+d}")
+        print(f"  {rank}. {factor:<8} score={s}")
 
 
 if __name__ == "__main__":

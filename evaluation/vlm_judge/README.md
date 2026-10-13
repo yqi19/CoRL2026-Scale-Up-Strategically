@@ -21,4 +21,4 @@ python vlm_judge/fdr_fdh.py --env-dir results/conflict_gr00t      # env-success 
 
 The default backend is the native Gemini REST API with the video sent inline. `--backend openai` posts the same request to an OpenAI-compatible chat endpoint (`VLM_API_URL`, default Gemini's OpenAI-compatible URL). `VLM_MODEL` overrides the model name (default `gemini-2.5-flash`).
 
-FDR = (N_f1 - N_f2) / (N_f1 + N_f2) over rollouts labelled with f1 or f2. FDH: for each of the 10 pairs, the factor with FDR margin above tau = 0.05 wins, below -tau loses, otherwise tie; factors are ranked by wins minus losses. Labels are matched exactly; `--normalize-labels` also accepts bracketed or quoted labels such as `["color"]`.
+FDR = (N_f1 - N_f2) / (N_f1 + N_f2) over rollouts labelled with f1 or f2. FDH: for each of the 10 pairs, the factor with FDR margin above tau = 0.05 wins, below -tau loses, otherwise tie; factors are ranked by number of wins (+1 per win, 0 per loss or tie). Labels are matched exactly; `--normalize-labels` also accepts bracketed or quoted labels such as `["color"]`.

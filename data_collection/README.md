@@ -24,7 +24,6 @@ Every instruction is built from five factors:
 ```bash
 # from the repository root
 pip install -e maniskill
-bash maniskill/fetch_upstream_assets.sh
 pip install -r data_collection/requirements_lerobot_convert.txt   # LeRobot conversion
 ```
 

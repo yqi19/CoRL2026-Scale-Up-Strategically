@@ -90,7 +90,7 @@ For a factor pair (f1, f2), the VLM judge labels each conflict rollout as follow
 
     FDR = (N_f1 - N_f2) / (N_f1 + N_f2)
 
-FDR > 0 means f1 dominates. FDH ranks the five factors with a Copeland score over the 10 pairwise FDRs: a factor wins a pair when its FDR margin exceeds tau = 5%, loses when it is below -tau, and ties otherwise; score = wins - losses. `vlm_judge/fdr_fdh.py` implements both. `--env-dir` computes the same FDR from the env's dual-axis success counts instead of the VLM labels.
+FDR > 0 means f1 dominates. FDH ranks the five factors with a Copeland score over the 10 pairwise FDRs: a factor wins a pair when its FDR margin exceeds tau = 5%; it scores +1 per win and 0 per loss or tie. `vlm_judge/fdr_fdh.py` implements both. `--env-dir` computes the same FDR from the env's dual-axis success counts instead of the VLM labels.
 
 ## Not included
 
