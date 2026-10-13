@@ -2,14 +2,14 @@
 
 Code for **Scale Up Strategically: Learning Compositional Generalization via Bias-Aware Evaluation and Data Collection for Robotic Manipulation** (CoRL 2026).
 
-[Project page](https://yqi19.github.io/scale-up-strategically/) · [Paper](https://arxiv.org/abs/2607.21582)
+🌐 [Project page](https://yqi19.github.io/scale-up-strategically/) · 📄 [Paper](https://arxiv.org/abs/2607.21582)
 
 Fine-tuned robot policies over-rely on some instruction factors (e.g., color) and ignore others (e.g., verb, size). This repository contains the two parts of the paper:
 
-1. **FDR / FDH evaluation.** Measure *instruction factor bias* with the Factor Dominance Rate (FDR) for each factor pair and the Factor Dominance Hierarchy (FDH) across factors.
-2. **Bias-aware data collection.** Collect demonstrations with a strategy (V, L, Random), fine-tune a policy, and measure its success rate on held-out instructions.
+1. 🔍 **FDR / FDH evaluation.** Measure *instruction factor bias* with the Factor Dominance Rate (FDR) for each factor pair and the Factor Dominance Hierarchy (FDH) across factors.
+2. 📈 **Bias-aware data collection.** Collect demonstrations with a strategy (V, L, Random), fine-tune a policy, and measure its success rate on held-out instructions.
 
-## Contents
+## 📑 Contents
 
 - [Repository layout](#repository-layout)
 - [Installation](#installation)
@@ -19,7 +19,9 @@ Fine-tuned robot policies over-rely on some instruction factors (e.g., color) an
 - [Data and checkpoints](#data-and-checkpoints)
 - [Citation](#citation)
 
-## Repository layout
+<a id="repository-layout"></a>
+
+## 🗂️ Repository layout
 
 | Folder | What it does |
 |---|---|
@@ -30,7 +32,9 @@ Fine-tuned robot policies over-rely on some instruction factors (e.g., color) an
 
 Each folder has its own README with all options. The sections below give the end-to-end workflow.
 
-## Installation
+<a id="installation"></a>
+
+## ⚙️ Installation
 
 ```bash
 git clone https://github.com/yqi19/CoRL2026-Scale-Up-Strategically
@@ -45,7 +49,9 @@ pip install -r evaluation/requirements.txt
 Motion planning needs Linux (`mplib`). Policies are trained and served from their own environments:
 [NVIDIA Isaac-GR00T](https://github.com/NVIDIA/Isaac-GR00T) for GR00T-N1.7 (see [`finetune/gr00t`](finetune/gr00t)) and [OpenPI](https://github.com/Physical-Intelligence/openpi) for π0.5 / π0 (see [`finetune/pi05`](finetune/pi05)). The evaluation clients talk to them over the network.
 
-## Instruction factors
+<a id="instruction-factors"></a>
+
+## 🧩 Instruction factors
 
 Every instruction in `VerbObjectColor-v1` is built from five factors:
 
@@ -57,11 +63,13 @@ Every instruction in `VerbObjectColor-v1` is built from five factors:
 | size | `small`, `large`, `smaller`, `larger`, `smallest`, `largest` |
 | spatial | `left`, `right`, `middle`, `front`, `behind` |
 
-## Part 1: FDR / FDH evaluation
+<a id="part-1-fdr--fdh-evaluation"></a>
 
-**Idea.** For a factor pair (f1, f2), fine-tune a policy on data where the two factors always co-occur, then test it on held-out combinations whose scene lets the policy follow either f1 or f2, but not both. A VLM judge labels which factor each rollout followed.
+## 🔍 Part 1: FDR / FDH evaluation
 
-### Step 1. Collect conflict data
+💡 **Idea.** For a factor pair (f1, f2), fine-tune a policy on data where the two factors always co-occur, then test it on held-out combinations whose scene lets the policy follow either f1 or f2, but not both. A VLM judge labels which factor each rollout followed.
+
+### 1️⃣ Collect conflict data
 
 Only the diagonal of the two-factor grid is collected (for verb x color: `lift`+`red`, `grasp`+`yellow`, ...). There are 10 factor pairs: `verb_color`, `verb_object`, `color_object`, `verb_size`, `verb_spatial`, `color_size`, `color_spatial`, `size_object`, `spatial_size`, `spatial_object`.
 
@@ -77,7 +85,7 @@ PIPELINE_OUT=./outputs/conflict/verb_size COLLECTION_EXPERIMENT=verb_size NUM_DE
 
 Each run collects 300 demonstrations by motion planning, replays them to RGB, and writes a LeRobot dataset to `outputs/conflict/<pair>/300/huggingface_data/<pair>/conflict/`. See [`data_collection/conflict_experiment`](data_collection/conflict_experiment).
 
-### Step 2. Fine-tune one policy per pair
+### 2️⃣ Fine-tune one policy per pair
 
 GR00T-N1.7 (convert to the GR00T format, then train; one run per pair):
 
@@ -92,7 +100,7 @@ OUTPUT_DIR=<CKPT_ROOT>/verb_color NUM_GPUS=4 bash finetune.sh
 
 For π0.5 / π0 see [`finetune/pi05`](finetune/pi05).
 
-### Step 3. Run conflict rollouts
+### 3️⃣ Run conflict rollouts
 
 Start the policy server for one checkpoint, then roll out 200 held-out pairs x 2 scenes (400 rollouts, one video each):
 
@@ -104,7 +112,7 @@ PORT=5555 bash evaluation/common/run_conflict.sh gr00t verb_color 42 200 results
 
 Use `pi0` instead of `gr00t` (and `evaluation/pi0/start_server.sh`) for OpenPI policies.
 
-### Step 4. Label rollouts with the VLM judge
+### 4️⃣ Label rollouts with the VLM judge
 
 Gemini-2.5-Flash watches each rollout video and answers which factor the robot followed (`f1`, `f2`, or `neither`):
 
@@ -113,7 +121,7 @@ export GEMINI_API_KEY=...
 python evaluation/vlm_judge/vlm_eval.py --results-root results/conflict_gr00t --label gr00t
 ```
 
-### Step 5. Compute FDR and FDH
+### 5️⃣ Compute FDR and FDH
 
 ```bash
 python evaluation/vlm_judge/fdr_fdh.py --vlm-dir results/conflict_gr00t/vlm_eval/gr00t --tau 0.05
@@ -128,11 +136,13 @@ python evaluation/vlm_judge/fdr_fdh.py --vlm-dir results/conflict_gr00t/vlm_eval
 
 `--env-dir results/conflict_gr00t` computes the same FDR from the simulator's dual-axis success counts instead of the VLM labels. Details: [`evaluation/vlm_judge`](evaluation/vlm_judge).
 
-## Part 2: Data collection strategies and policy success rate
+<a id="part-2-data-collection-strategies-and-policy-success-rate"></a>
 
-**Idea.** The instruction space grows combinatorially, so a fixed demonstration budget cannot cover every combination. A strategy decides which combinations of factor values are collected; the fine-tuned policy is then evaluated on all cells, including held-out ones.
+## 📈 Part 2: Data collection strategies and policy success rate
 
-### Strategies
+💡 **Idea.** The instruction space grows combinatorially, so a fixed demonstration budget cannot cover every combination. A strategy decides which combinations of factor values are collected; the fine-tuned policy is then evaluated on all cells, including held-out ones.
+
+### 🧭 Strategies
 
 | Paper | Code name (pairwise, Verb-Color-Object) | Code name (All-Factor) | Collected cells |
 |---|---|---|---|
@@ -142,7 +152,7 @@ python evaluation/vlm_judge/fdr_fdh.py --vlm-dir results/conflict_gr00t/vlm_eval
 
 `FACTOR_COUNT` (the factor change *f*) is the size of the grid: pairwise 6 / 12 / 18 (Spatial-Object 12 / 20 / 30), Verb-Color-Object 15 / 20 / 30, All-Factor 50. `NUM_DEMOS` is the demonstration budget *n*. Exact supports are listed in [`data_collection/collection_strategy`](data_collection/collection_strategy).
 
-### Step 1. Collect strategy data
+### 1️⃣ Collect strategy data
 
 ```bash
 cd data_collection
@@ -163,11 +173,11 @@ PIPELINE_OUT=./outputs/all_factor STRATEGY=stairvss FACTOR_COUNT=50 NUM_DEMOS=40
 
 Pairwise grids: `verb_color`, `verb_object`, `color_object`, `verb_size`, `verb_spatial`, `color_size`, `color_spatial`, `spatial_size`, `spatial_object`. The LeRobot dataset is written to `outputs/<n>/huggingface_data/<experiment>/<strategy>_f<f>/`.
 
-### Step 2. Fine-tune
+### 2️⃣ Fine-tune
 
 Train one policy per (experiment, strategy, f, n) dataset with the recipes in [`finetune/gr00t`](finetune/gr00t) or [`finetune/pi05`](finetune/pi05).
 
-### Step 3. Evaluate success rate
+### 3️⃣ Evaluate success rate
 
 Start the policy server, then run the grid evaluation over 3 seeds (42, 40, 41):
 
@@ -191,11 +201,15 @@ Each run writes one log per seed and a `SUMMARY.txt` with the mean success rate 
 
 Full protocol (max steps, replanning, task difficulty): [`evaluation`](evaluation).
 
-## Data and checkpoints
+<a id="data-and-checkpoints"></a>
 
-Datasets and fine-tuned checkpoints are linked from the [project page](https://yqi19.github.io/scale-up-strategically/).
+## 📦 Data and checkpoints
 
-## Citation
+🤖 Datasets and fine-tuned checkpoints are linked from the [project page](https://yqi19.github.io/scale-up-strategically/).
+
+<a id="citation"></a>
+
+## 📝 Citation
 
 ```bibtex
 @inproceedings{qi2026scaleup,
